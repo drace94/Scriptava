@@ -1,0 +1,9 @@
+.DS_Store
+/**/*.png
+/**/*.mp4
+/**/*.bin
+/**/__pycache__
+/**/*.h5
+/**/*.npy
+/**/*.pb
+/**/.index
