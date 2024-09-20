@@ -11,7 +11,7 @@ R = 6371000
 # LIBRARIES
 #===================================================================================================================================
 
-import os , sys , errno , re , time
+import os, sys, time
 import xml.etree.ElementTree as ET
 import numpy as np
 import matplotlib.pyplot as plt
@@ -28,104 +28,115 @@ class activity:
     # INIT
     #===============================================================================================================================
 
-    def __init__( self , file_path ):
-
-        # default attributes
-        self.sport          = 'Unknown'
-        self.start_time     = 'Unknown'
-        self.total_time     = -1
-        self.total_dist     = -1
-        self.calories       = -1
-        self.avg_bpm        = -1
-        self.max_bpm        = -1
-        self.device         = 'Unknown'
+    def __init__(self, file_path):
 
         # read file
-        if os.path.exists( file_path ):
+        if os.path.exists(file_path):
 
             self.path = file_path
             self.read_file()
 
         else:
 
-            raise FileNotFoundError( "No such file or directory: " + repr(file_path) )
+            raise FileNotFoundError("No such file or directory: "+repr(file_path))
 
     #===============================================================================================================================
     # GENERIC READ
     #===============================================================================================================================
 
-    def read_file( self ):
+    def read_file(self):
 
-        tree = ET.parse( self.path )
-        root = tree.getroot()
+        tree = ET.parse(self.path)
+        self.root = tree.getroot()
 
         if self.path.endswith('.gpx'):
 
-            namespace = None
+            self.namespace = {
+                'gpx'      : 'http://www.topografix.com/GPX/1/1',
+                'gpxtpx'   : 'http://www.garmin.com/xmlschemas/TrackPointExtension/v1',
+                'gpxx'     : 'http://www.garmin.com/xmlschemas/GpxExtensions/v3'
+            }
 
-            self.read_gpx( root , namespace )
+            self.read_gpx()
 
         elif self.path.endswith('.tcx'):
 
-            namespace = {'tcx': 'http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2'}
+            self.namespace = {
+                'tcx'   : 'http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2',
+                'ns3'   : "http://www.garmin.com/xmlschemas/ActivityExtension/v2"
+            }
 
-            self.read_tcx( root , namespace )
+            self.read_tcx()
 
         else:
 
-            raise TypeError( "Unsupported file format. Should be either GPX or TCX." )
+            raise TypeError("Unsupported file format. Should be either GPX or TCX.")
+
+    #===============================================================================================================================
+    # READ XML ELEMENT
+    #===============================================================================================================================
+
+    def __findChildTag__(self, element, tag, tofloat=True, default=None):
+
+        # search child with tag
+        res = element.find(tag, self.namespace)
+
+        # default return
+        if res is None:
+
+            return default
+
+        # else handle tag case
+        else:
+
+            return float(res.text) if tofloat else res.text
+
+    def __getAttribute__(self, element, tag, tofloat=True, default=None):
+
+        # get attribute of current element
+        res = element.get(tag)
+
+        # default return
+        if res is None:
+
+            return default
+
+        # else handle tag case
+        else:
+
+            return float(res) if tofloat else res
 
     #===============================================================================================================================
     # READ GPX FILE
     #===============================================================================================================================
 
-    def read_gpx( self , root ):
-
-        #TODO
-        None
-
-    #===============================================================================================================================
-    # READ TCX FILE
-    #===============================================================================================================================
-    
-    def read_tcx( self , root , namespace ):
+    def read_gpx( self ):
 
         # 1. Parse metadata
 
         # activity type
-        res = root.find('.//tcx:Activity', namespace)
-        self.sport = res.attrib.get('Sport', 'Unknown')
+        self.sport = self.__findChildTag__(element=self.root, tag='.//gpx:type', tofloat=False, default='Unknown')
 
         # start time
-        res = root.find('.//tcx:Id', namespace)
-        if res is not None: self.start_time = res.text 
+        self.start_time = self.__findChildTag__(element=self.root, tag='.//gpx:metadata/gpx:time', tofloat=False, default='Unknown')
 
         # total activity time
-        res = root.find('.//tcx:TotalTimeSeconds', namespace)
-        if res is not None: self.total_time = float(res.text)
+        self.total_time = 0.0
 
         # total activity distance
-        res = root.find('.//tcx:DistanceMeters', namespace)
-        if res is not None: self.total_dist = float(res.text)
+        self.total_dist = 0.0
 
         # calories
-        res = root.find('.//tcx:Calories', namespace)
-        if res is not None: self.calories = float(res.text)
+        self.calories = 0.0
 
         # avg bpm
-        tmp = root.find('.//tcx:AverageHeartRateBpm', namespace)
-        if tmp is not None: res = tmp.find('tcx:Value', namespace)
-        if res is not None: self.avg_bpm = float(res.text)
+        self.avg_bpm = 0.0
 
         # max bpm
-        tmp = root.find('.//tcx:MaximumHeartRateBpm', namespace)
-        if tmp is not None: res = tmp.find('tcx:Value', namespace)
-        if res is not None: self.max_bpm = float(res.text)
+        self.max_bpm = 0.0
 
         # device
-        tmp = root.find('.//tcx:Creator', namespace)
-        if tmp is not None: res = tmp.find('tcx:Name', namespace)
-        if res is not None: self.device = res.text
+        self.device = 'Unknown'
 
         # 2. Parse trackpoints
 
@@ -133,33 +144,88 @@ class activity:
         data  = []
 
         # iterate through each trackpoint
-        for track in root.findall('.//tcx:Track', namespace):
-            for trackpoint in track.findall('tcx:Trackpoint', namespace):
+        for trackpoint in self.root.findall('.//gpx:trkseg/gpx:trkpt', self.namespace):
 
-                # time
-                res = trackpoint.find('tcx:Time', namespace)
-                time = res.text if res is not None else None
+            # time
+            time = self.__findChildTag__(element=trackpoint, tag='./gpx:time', tofloat=False)
 
-                # position
-                res = trackpoint.find('tcx:Position/tcx:LatitudeDegrees', namespace)
-                lat = float(res.text) if res is not None else None
-                res = trackpoint.find('tcx:Position/tcx:LongitudeDegrees', namespace)
-                lon = float(res.text) if res is not None else None
+            # position
+            lat = self.__getAttribute__(element=trackpoint, tag='lat')
+            lon = self.__getAttribute__(element=trackpoint, tag='lon')
 
-                # elevation
-                res = trackpoint.find('tcx:AltitudeMeters', namespace)
-                ele = float(res.text) if res is not None else None
+            # elevation
+            ele = self.__findChildTag__(element=trackpoint, tag='./gpx:ele')
 
-                # distance
-                res = trackpoint.find('tcx:DistanceMeters', namespace)
-                dist = float(res.text) if res is not None else None
+            # distance
+            dist = 0.0 #self.__findChildTag__(element=trackpoint, tag='gpx:dist')
 
-                # bpm
-                res = trackpoint.find('tcx:HeartRateBpm/tcx:Value', namespace)
-                bpm = float(res.text) if res is not None else None
+            # bpm
+            bpm = self.__findChildTag__(element=trackpoint, tag='.//gpxtpx:hr')
 
-                # append data to matrix
-                data.append([time, lat, lon, ele, dist, bpm])
+            # append data to matrix
+            data.append([time, lat, lon, ele, dist, bpm])
+
+        self.data = np.array(data, dtype=object)
+
+    #===============================================================================================================================
+    # READ TCX FILE
+    #===============================================================================================================================
+    
+    def read_tcx( self ):
+
+        # 1. Parse metadata
+
+        # activity type
+        activity = self.root.find('.//tcx:Activity', self.namespace)
+        self.sport = self.__getAttribute__(element=activity, tag='Sport', tofloat=False, default='Unknown')
+
+        # start time
+        self.start_time = self.__findChildTag__(element=self.root, tag='.//tcx:Id', tofloat=False, default='Unknown')
+
+        # total activity time
+        self.start_time = self.__findChildTag__(element=self.root, tag='.//tcx:TotalTimeSeconds', default=0.0)
+
+        # total activity distance
+        self.total_dist = self.__findChildTag__(element=self.root, tag='.//tcx:DistanceMeters', default=0.0)
+
+        # calories
+        self.calories = self.__findChildTag__(element=self.root, tag='.//tcx:Calories', default=0.0)
+
+        # avg bpm
+        self.avg_bpm = self.__findChildTag__(element=self.root, tag='.//tcx:AverageHeartRateBpm/tcx:Value', default=0.0)
+
+        # max bpm
+        self.max_bpm = self.__findChildTag__(element=self.root, tag='.//tcx:MaximumHeartRateBpm/tcx:Value', default=0.0)
+
+        # device
+        self.device = self.__findChildTag__(element=self.root, tag='.//tcx:Creator/tcx:Name', tofloat=False, default='Unknown')
+
+        # 2. Parse trackpoints
+
+        # initialize empty data matrix
+        data  = []
+
+        # iterate through each trackpoint
+        for trackpoint in self.root.findall('.//tcx:Track/tcx:Trackpoint', self.namespace):
+
+            # time
+            time = self.__findChildTag__(element=trackpoint, tag='./tcx:Time', tofloat=False)
+
+            # position
+            lat = self.__findChildTag__(element=trackpoint, tag='./tcx:Position/tcx:LatitudeDegrees')
+            lon = self.__findChildTag__(element=trackpoint, tag='./tcx:Position/tcx:LongitudeDegrees')
+
+            # elevation
+            ele = self.__findChildTag__(element=trackpoint, tag='./tcx:AltitudeMeters')
+
+            # distance
+            dist = self.__findChildTag__(element=trackpoint, tag='./tcx:DistanceMeters')
+
+            # bpm
+            bpm = self.__findChildTag__(element=trackpoint, tag='./tcx:HeartRateBpm/tcx:Value')
+
+            # append data to matrix
+            data.append([time, lat, lon, ele, dist, bpm])
 
         self.data = np.array(data, dtype=object)
 
@@ -167,15 +233,15 @@ class activity:
     # SUMMARIZE FILE
     #===============================================================================================================================
 
-    def summarize( self ):
+    def summarize(self):
 
         print("\n"+15*"==="+"\n"+self.path.center(45)+"\n"+15*"==="+"\n")
 
-        # print class attributes except path or data matrix
+        # print class attributes
         print(15*"---"+"\n"+"METADATA".center(45)+"\n"+15*"---")
 
         for key, value in self.__dict__.items():
-            if key not in ['path','data']:
+            if key not in ['path','namespace','root','data']:
                 print(f"{key.ljust(12)}: {value}")
 
         # print additional information about data
